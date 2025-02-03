@@ -3,6 +3,7 @@ require('dotenv').config(); // Loads environment variables from a .env file
 const express = require('express');
 const bodyParser = require('body-parser');
 const moment = require('moment');
+const cron = require('node-cron');
 const { MessagingResponse } = require('twilio').twiml;
 const twilio = require('twilio');
 const { createClient } = require('@supabase/supabase-js');
@@ -53,7 +54,6 @@ app.post('/sms', async (req, res) => {
     }
 
     // Check if the message is a valid numeric cash entry.
-    // (Using regex to ensure the input is only digits with optional decimal places.)
     const numberRegex = /^\d+(\.\d+)?$/;
     if (numberRegex.test(incomingMsg)) {
       const amount = parseFloat(incomingMsg);
@@ -69,18 +69,18 @@ app.post('/sms', async (req, res) => {
     }
 
     // Attempt to interpret the message as a date query.
-    // Supported input formats: "March 2023", "Mar 2023", "03/2023", "3/2023", "03/15/2023", "3/5/2023", etc.
+    // Supported input formats: "March 2023", "Mar 2023", "03/2023", "3/2023", "03/15/2023", etc.
     const formats = ['MMMM YYYY', 'MMM YYYY', 'MM/YYYY', 'M/YYYY', 'MM/DD/YYYY', 'M/D/YYYY'];
     let dateQuery = moment(incomingMsg, formats, true);
 
-    // If the strict parse fails, try appending the current year (in case the user typed only a month)
+    // If strict parsing fails, try appending the current year (in case the user typed only a month)
     if (!dateQuery.isValid()) {
       dateQuery = moment(incomingMsg + ' ' + moment().year(), ['MMMM YYYY', 'MMM YYYY'], true);
     }
 
     if (dateQuery.isValid()) {
       // Extract month and year from the parsed date.
-      const queryMonth = dateQuery.month(); // moment month is 0-indexed (0 = January)
+      const queryMonth = dateQuery.month(); // moment months are 0-indexed (0 = January)
       const queryYear = dateQuery.year();
 
       // Define the start and end of the month.
@@ -116,36 +116,44 @@ app.post('/sms', async (req, res) => {
   }
 });
 
-/**
- * GET /send-sms endpoint
- * This endpoint sends the scheduled SMS message.
- * It is intended to be called by Render’s Cron Job.
- */
-app.get('/send-sms', async (req, res) => {
-  try {
-    // (Optional) You can secure this endpoint with a token or secret.
-    const userPhoneNumber = process.env.USER_PHONE_NUMBER;
-    if (!userPhoneNumber) {
-      return res.status(500).send('User phone number not configured.');
-    }
-    // Send SMS using Twilio
-    const message = await twilioClient.messages.create({
-      body: 'How much cash did you make today?',
-      from: process.env.TWILIO_PHONE_NUMBER,
-      to: userPhoneNumber,
-    });
-    console.log('Scheduled SMS sent:', message.sid);
-    res.send('SMS sent.');
-  } catch (err) {
-    console.error('Error sending SMS:', err);
-    res.status(500).send('Error sending SMS.');
-  }
-});
-
 // A simple health-check endpoint.
 app.get('/', (req, res) => {
   res.send('SMS Tracker App is running.');
 });
+
+// *** SCHEDULED TASK USING node-cron ***
+// This will send an SMS prompt every Tuesday through Saturday at 6 pm EST.
+cron.schedule(
+  // Cron expression breakdown:
+  // ┌───────────── minute (0)
+  // │ ┌──────────── hour (18 => 6 pm)
+  // │ │ ┌────────── day of month (*, every day)
+  // │ │ │ ┌──────── month (*, every month)
+  // │ │ │ │ ┌────── day of week (2-6 => Tue-Sat)
+  // │ │ │ │ │
+  '0 18 * * 2-6',
+  async () => {
+    try {
+      const userPhoneNumber = process.env.USER_PHONE_NUMBER;
+      if (!userPhoneNumber) {
+        console.error('USER_PHONE_NUMBER not configured.');
+        return;
+      }
+      // Send SMS using Twilio
+      const message = await twilioClient.messages.create({
+        body: 'How much cash did you make today?',
+        from: process.env.TWILIO_PHONE_NUMBER,
+        to: userPhoneNumber,
+      });
+      console.log('Scheduled SMS sent:', message.sid);
+    } catch (err) {
+      console.error('Error sending scheduled SMS:', err);
+    }
+  },
+  {
+    timezone: 'America/New_York', // Ensures the schedule runs at 6 pm EST
+  }
+);
 
 // Start the server
 app.listen(port, () => {
