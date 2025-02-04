@@ -122,38 +122,39 @@ app.get('/', (req, res) => {
 });
 
 // *** SCHEDULED TASK USING node-cron ***
-// This will send an SMS prompt every Tuesday through Saturday at 6 pm EST.
+// This will send an SMS prompt every Tuesday through Saturday at 4:30 pm EST.
 cron.schedule(
-  // Cron expression breakdown:
-  // ┌───────────── minute (0)
-  // │ ┌──────────── hour (18 => 6 pm)
-  // │ │ ┌────────── day of month (*, every day)
-  // │ │ │ ┌──────── month (*, every month)
-  // │ │ │ │ ┌────── day of week (2-6 => Tue-Sat)
-  // │ │ │ │ │
-  '0 18 * * 2-6',
-  async () => {
-    try {
-      const userPhoneNumber = process.env.USER_PHONE_NUMBER;
-      if (!userPhoneNumber) {
-        console.error('USER_PHONE_NUMBER not configured.');
-        return;
+    // Cron expression breakdown:
+    // ┌───────────── minute (30)
+    // │ ┌──────────── hour (16 => 4 pm)
+    // │ │ ┌────────── day of month (*, every day)
+    // │ │ │ ┌──────── month (*, every month)
+    // │ │ │ │ ┌────── day of week (2-6 => Tue-Sat)
+    // │ │ │ │ │
+    '30 16 * * 2-6',
+    async () => {
+      try {
+        const userPhoneNumber = process.env.USER_PHONE_NUMBER;
+        if (!userPhoneNumber) {
+          console.error('USER_PHONE_NUMBER not configured.');
+          return;
+        }
+        // Send SMS using Twilio
+        const message = await twilioClient.messages.create({
+          body: 'How much cash did you make today?',
+          from: process.env.TWILIO_PHONE_NUMBER,
+          to: userPhoneNumber,
+        });
+        console.log('Scheduled SMS sent:', message.sid);
+      } catch (err) {
+        console.error('Error sending scheduled SMS:', err);
       }
-      // Send SMS using Twilio
-      const message = await twilioClient.messages.create({
-        body: 'How much cash did you make today?',
-        from: process.env.TWILIO_PHONE_NUMBER,
-        to: userPhoneNumber,
-      });
-      console.log('Scheduled SMS sent:', message.sid);
-    } catch (err) {
-      console.error('Error sending scheduled SMS:', err);
+    },
+    {
+      timezone: 'America/New_York', // Ensures the schedule runs at 4:30 pm EST
     }
-  },
-  {
-    timezone: 'America/New_York', // Ensures the schedule runs at 6 pm EST
-  }
-);
+  );
+  
 
 // Start the server
 app.listen(port, () => {
